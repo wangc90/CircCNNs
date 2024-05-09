@@ -7,3 +7,7 @@ The figure below shows the rationale of how we created exon pairs that either pa
 
 The figure below shows our base models processing the junction sequences to classify BS and LS exon pairs.
 ![CircCNN Base models](Images/base_models.jpg)
+
+
+The figure below shows our fast numerical methods to calculate reverse complementary matches (RCMs) crossing the flanking introns or within the flanking intron.
+![CircCNN Base models](Images/RCM_algorithm.png)
