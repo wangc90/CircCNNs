@@ -1,0 +1,231 @@
+import torch
+from torch.utils.data import Dataset, DataLoader, SubsetRandomSampler, random_split
+import pandas as pd
+import numpy as np
+import os
+import random
+from collections import defaultdict, Counter
+from itertools import combinations
+import json
+import torch.nn as nn
+import torch.nn.functional as F
+from sklearn.model_selection import KFold
+import optuna
+import pickle
+
+import sys
+### import Dataset prepartion and model training classes from BS_LS_scripts folder
+sys.path.insert(1, '/home/wangc90/Desktop/project_script/')
+from BS_LS_DataSet import BS_LS_DataSet_Prep, BS_LS_upper_lower_rcm
+from BS_LS_Training_Base_models import Objective, Objective_CV
+
+
+
+### Model 2 input sequence 4 X 200 + 4 X 200 with 1 or 2CNN layer
+class Model2_optuna_upper(nn.Module):
+    '''
+        This is for 2-d model to process the upper half of the sequence with 1 or 2 CNN
+    '''
+
+    def __init__(self, trial):
+        super(Model2_optuna_upper, self).__init__()
+        # convlayer 1
+        self.out_channel1 = trial.suggest_categorical('upper_out_channel1', [32, 64, 128, 256, 512])
+        kernel_size1 = trial.suggest_categorical('upper_kernel_size1', [13, 15, 17, 19, 21])
+
+        self.conv1 = nn.Conv1d(in_channels=4, out_channels=self.out_channel1, \
+                               kernel_size=kernel_size1, stride=1, padding=(kernel_size1 - 1) // 2)
+        self.conv1_bn = nn.BatchNorm1d(self.out_channel1)
+        self.maxpool1 = trial.suggest_categorical('upper_maxpool1', [5, 10, 20])
+        self.conv1_out_dim = 200 // self.maxpool1
+
+        self.out_channel2 = trial.suggest_categorical('upper_out_channel2', [32, 64, 128, 256, 512])
+        kernel_size2 = trial.suggest_categorical('upper_kernel_size2', [13, 15, 17, 19, 21])
+
+        self.conv2 = nn.Conv1d(in_channels=self.out_channel1, out_channels=self.out_channel2, \
+                               kernel_size=kernel_size2, stride=1, padding=(kernel_size2 - 1) // 2)
+        self.conv2_bn = nn.BatchNorm1d(self.out_channel2)
+        self.maxpool2 = trial.suggest_categorical('upper_maxpool2', [5, 10])
+        self.conv2_out_dim = 200 // (self.maxpool1 * self.maxpool2)
+
+    def forward(self, x):
+        out = x
+        out = torch.relu(self.conv1_bn(self.conv1(out)))
+        out = F.max_pool1d(out, self.maxpool1)
+        out = torch.relu(self.conv2_bn(self.conv2(out)))
+        out = F.max_pool1d(out, self.maxpool2)
+        out = out.view(-1, self.out_channel2 * self.conv2_out_dim)
+        return out
+
+
+class Model2_optuna_lower(nn.Module):
+    '''
+        This is for 2-d model to process the upper half of the sequence with 1 or 2 CNN
+    '''
+
+    def __init__(self, trial):
+
+        super(Model2_optuna_lower, self).__init__()
+        # convlayer 1
+        self.out_channel1 = trial.suggest_categorical('lower_out_channel1', [32, 64, 128, 256, 512])
+        kernel_size1 = trial.suggest_categorical('lower_kernel_size1', [13, 15, 17, 19, 21])
+        self.conv1 = nn.Conv1d(in_channels=4, out_channels=self.out_channel1, \
+                               kernel_size=kernel_size1, stride=1, padding=(kernel_size1 - 1) // 2)
+        self.conv1_bn = nn.BatchNorm1d(self.out_channel1)
+        self.maxpool1 = trial.suggest_categorical('lower_maxpool1', [5, 10, 20])
+        self.conv1_out_dim = 200 // self.maxpool1
+
+        self.out_channel2 = trial.suggest_categorical('lower_out_channel2', [32, 64, 128, 256, 512])
+        kernel_size2 = trial.suggest_categorical('lower_kernel_size2', [13, 15, 17, 19, 21])
+        self.conv2 = nn.Conv1d(in_channels=self.out_channel1, out_channels=self.out_channel2, \
+                               kernel_size=kernel_size2, stride=1, padding=(kernel_size2 - 1) // 2)
+        self.conv2_bn = nn.BatchNorm1d(self.out_channel2)
+        self.maxpool2 = trial.suggest_categorical('lower_maxpool2', [5, 10])
+        self.conv2_out_dim = 200 // (self.maxpool1 * self.maxpool2)
+
+    def forward(self, x):
+        out = x
+        out = torch.relu(self.conv1_bn(self.conv1(out)))
+        out = F.max_pool1d(out, self.maxpool1)
+        out = torch.relu(self.conv2_bn(self.conv2(out)))
+        out = F.max_pool1d(out, self.maxpool2)
+        out = out.view(-1, self.out_channel2 * self.conv2_out_dim)
+        return out
+
+
+class ConcatModel2_optuna(nn.Module):
+    def __init__(self, trial):
+
+        super(ConcatModel2_optuna, self).__init__()
+        ### cnn for the upper half sequence
+        self.cnn_upper = Model2_optuna_upper(trial)
+
+        # this is for two convlayer
+        self.upper_out_dim = self.cnn_upper.conv2_out_dim
+        self.upper_out_channel = self.cnn_upper.out_channel2
+
+        ### cnn for the lower half sequence
+        self.cnn_lower = Model2_optuna_lower(trial)
+
+            # this is for two convlayer
+        self.lower_out_dim = self.cnn_lower.conv2_out_dim
+        self.lower_out_channel = self.cnn_lower.out_channel2
+
+        self.upper_lower_concate_fc1_in = self.upper_out_channel * self.upper_out_dim + \
+                                 self.lower_out_channel * self.lower_out_dim
+
+        self.upper_lower_concate_fc1_out = trial.suggest_categorical('concat_fc1_out', [32, 64, 128, 256, 512])
+
+        self.upper_lower_concate_fc1 = nn.Linear(self.upper_lower_concate_fc1_in, self.upper_lower_concate_fc1_out)
+
+        self.upper_lower_concate_fc1_bn = nn.BatchNorm1d(self.upper_lower_concate_fc1_out)
+
+        dropout_rate_fc1 = trial.suggest_categorical("concat_dropout_rate_fc1",  [0, 0.2, 0.4, 0.6, 0.8])
+        self.drop_nn1 = nn.Dropout(p=dropout_rate_fc1)
+
+        # fc layer2
+        # use dimension output with nn.CrossEntropyLoss()
+        self.upper_lower_concate_fc2_out = trial.suggest_categorical('concat_fc2_out', [8, 16, 32, 64, 128])
+        self.upper_lower_concate_fc2 = nn.Linear(self.upper_lower_concate_fc1_out, self.upper_lower_concate_fc2_out)
+        self.upper_lower_concate_fc2_bn = nn.BatchNorm1d(self.upper_lower_concate_fc2_out)
+
+        dropout_rate_fc2 = trial.suggest_categorical("concat_dropout_rate_fc2", [0, 0.2, 0.4, 0.6, 0.8])
+        self.drop_nn2 = nn.Dropout(p=dropout_rate_fc2)
+
+        self.upper_lower_concate_final = nn.Linear(self.upper_lower_concate_fc2_out, 2)
+
+    def forward(self, seq_upper_feature, seq_lower_feature):
+
+        # obatin the result from the cnn upper
+        x1 = self.cnn_upper(seq_upper_feature)
+
+        # obtain the result from the cnn lower
+        x2 = self.cnn_lower(seq_lower_feature)
+
+        x = torch.cat((x1, x2), dim=1)
+
+        # feed the concatenated feature to fc1
+        out = self.upper_lower_concate_fc1(x)
+        out = self.drop_nn1(torch.relu(self.upper_lower_concate_fc1_bn(out)))
+
+        out = self.upper_lower_concate_fc2(out)
+        out = self.drop_nn2(torch.relu(self.upper_lower_concate_fc2_bn(out)))
+
+        out = self.upper_lower_concate_final(out)
+
+        return out
+
+
+def base_model2_selection_optuna(num_trial):
+    ### where to save the 3-fold CV validation acc
+
+    val_acc_folder = '/home/wangc90/Desktop/project_result/Base_model2/val_acc_cv3'
+    ### where to save the best model in the 3-fold CV
+    model_folder = '/home/wangc90/Desktop/project_result/Base_model2/models'
+    ### wehre to save the detailed optuna results
+    optuna_folder = '/home/wangc90/Desktop/project_result/Base_model2/optuna'
+
+    ## These need to be changed for redhawks
+    BS_LS_coordinates_path = '/home/wangc90/Desktop/project_data/BS_LS_coordinates_final.csv'
+    hg19_seq_dict_json_path = '/home/wangc90/Desktop/project_data/hg19_seq_dict.json'
+    flanking_dict_folder = '/home/wangc90/Desktop/project_data/flanking_dicts/'
+    bs_ls_dataset = BS_LS_DataSet_Prep(BS_LS_coordinates_path=BS_LS_coordinates_path,
+                                       hg19_seq_dict_json_path=hg19_seq_dict_json_path,
+                                       flanking_dict_folder=flanking_dict_folder,
+                                       flanking_junction_bps=100,
+                                       flanking_intron_bps=100,
+                                       training_size=11000)
+
+    ### generate the junction and flanking intron dict
+    bs_ls_dataset.get_junction_flanking_intron_seq()
+
+    ### use the 10000 for training RCM and junction seq and use 1000 for combine them
+    train_key1, _, test_keys = bs_ls_dataset.get_train_test_keys()
+
+
+    rcm_scores_folder = '/home/wangc90/Desktop/project_data/flanking_dicts/rcm_scores/'
+
+    ## try without rcm features
+    train_torch_upper_features, train_torch_lower_features, \
+    train_torch_labels = bs_ls_dataset.seq_to_tensor(data_keys=train_key1, rcm_folder=rcm_scores_folder, is_rcm=False,
+                                                     is_upper_lower_concat=False)
+
+    BS_LS_dataset = BS_LS_upper_lower_rcm(include_rcm=False,
+                                          seq_upper_feature=train_torch_upper_features,
+                                          seq_lower_feature=train_torch_lower_features,
+                                          flanking_rcm=None,
+                                          upper_rcm=None,
+                                          lower_rcm=None,
+                                          label=train_torch_labels)
+
+    print(len(BS_LS_dataset))
+
+    # study = optuna.create_study(pruner=optuna.pruners.MedianPruner(n_warmup_steps=2),
+    #                             direction='maximize')
+    study = optuna.create_study(pruner=optuna.pruners.MedianPruner(n_warmup_steps=1, n_startup_trials=10),
+                                direction='maximize')
+
+    study.optimize(Objective_CV(patience=5, cv=10, model=ConcatModel2_optuna,
+                                dataset=BS_LS_dataset,
+                                val_acc_folder=val_acc_folder,
+                                model_folder=model_folder), n_trials=num_trial, gc_after_trial=True)
+
+    pruned_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.PRUNED]
+    complete_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+    with open(optuna_folder + '/optuna.txt', 'a') as f:
+        f.write("Study statistics: \n")
+        f.write(f"Number of finished trials: {len(study.trials)}\n")
+        f.write(f"Number of pruned trials: {len(pruned_trials)}\n")
+        f.write(f"Number of complete trials: {len(complete_trials)}\n")
+
+        f.write("Best trial:\n")
+        trial = study.best_trial
+        f.write(f"Value: {trial.value}\n")
+        f.write("Params:\n")
+        for key, value in trial.params.items():
+            f.write(f"{key}:{value}\n")
+
+    df = study.trials_dataframe().drop(['state', 'datetime_start', 'datetime_complete', 'duration', 'number'], axis=1)
+    df.to_csv(optuna_folder + '/optuna.csv', sep='\t', index=None)
+
+base_model2_selection_optuna(1000)
