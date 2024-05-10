@@ -14,14 +14,13 @@ import optuna
 import pickle
 
 import sys
-### import Dataset prepartion and model training classes from BS_LS_scripts folder
-sys.path.insert(1, '/home/wangc90/Desktop/project_script/')
+### import Dataset prepartion and model training classes from Auxiliary_Codes folder
 from BS_LS_DataSet import BS_LS_DataSet_Prep, BS_LS_upper_lower_rcm
 from BS_LS_Training_Base_models import Objective, Objective_CV
 
 
 
-### Model 2 input sequence 4 X 200 + 4 X 200 with 1 or 2CNN layer
+### Model 2 input sequence 4 X 200 + 4 X 200 with 2CNN layer
 class Model2_optuna_upper(nn.Module):
     '''
         This is for 2-d model to process the upper half of the sequence with 1 or 2 CNN
@@ -157,35 +156,35 @@ class ConcatModel2_optuna(nn.Module):
 
 
 def base_model2_selection_optuna(num_trial):
-    ### where to save the 3-fold CV validation acc
-
+    ### specify where to save the 3-fold CV validation acc
     val_acc_folder = '/home/wangc90/Desktop/project_result/Base_model2/val_acc_cv3'
-    ### where to save the best model in the 3-fold CV
+    ### specify where to save the best model in the 3-fold CV
     model_folder = '/home/wangc90/Desktop/project_result/Base_model2/models'
-    ### wehre to save the detailed optuna results
+    ### specify where to save the detailed optuna results
     optuna_folder = '/home/wangc90/Desktop/project_result/Base_model2/optuna'
-
-    ## These need to be changed for redhawks
+    ## These need to be changed accordingly
+    ## Specify where to find the BS_LS_coordinates_final.csv (can be downloaded from Data folder)
     BS_LS_coordinates_path = '/home/wangc90/Desktop/project_data/BS_LS_coordinates_final.csv'
+    ## Specify where to find the json file containing hg19 sequence (can be downloaded from Data folder, see readme)
     hg19_seq_dict_json_path = '/home/wangc90/Desktop/project_data/hg19_seq_dict.json'
+    ## (can be downloaded from Data folder, see readme)
     flanking_dict_folder = '/home/wangc90/Desktop/project_data/flanking_dicts/'
     bs_ls_dataset = BS_LS_DataSet_Prep(BS_LS_coordinates_path=BS_LS_coordinates_path,
                                        hg19_seq_dict_json_path=hg19_seq_dict_json_path,
                                        flanking_dict_folder=flanking_dict_folder,
                                        flanking_junction_bps=100,
                                        flanking_intron_bps=100,
-                                       training_size=11000)
-
+                                       training_size=10000)
+    # This training_size can be changed, 10000, 9000, 8000 were used in this study
     ### generate the junction and flanking intron dict
     bs_ls_dataset.get_junction_flanking_intron_seq()
 
-    ### use the 10000 for training RCM and junction seq and use 1000 for combine them
+    ### use the 10000 for training RCM and junction seq and use remaining to combine the model
     train_key1, _, test_keys = bs_ls_dataset.get_train_test_keys()
 
-
+    ### specify where to get the rcm_scores (can be downloaded from Data see readme)
     rcm_scores_folder = '/home/wangc90/Desktop/project_data/flanking_dicts/rcm_scores/'
 
-    ## try without rcm features
     train_torch_upper_features, train_torch_lower_features, \
     train_torch_labels = bs_ls_dataset.seq_to_tensor(data_keys=train_key1, rcm_folder=rcm_scores_folder, is_rcm=False,
                                                      is_upper_lower_concat=False)
@@ -200,12 +199,10 @@ def base_model2_selection_optuna(num_trial):
 
     print(len(BS_LS_dataset))
 
-    # study = optuna.create_study(pruner=optuna.pruners.MedianPruner(n_warmup_steps=2),
-    #                             direction='maximize')
     study = optuna.create_study(pruner=optuna.pruners.MedianPruner(n_warmup_steps=1, n_startup_trials=10),
                                 direction='maximize')
 
-    study.optimize(Objective_CV(patience=5, cv=10, model=ConcatModel2_optuna,
+    study.optimize(Objective_CV(patience=5, cv=3, model=ConcatModel2_optuna,
                                 dataset=BS_LS_dataset,
                                 val_acc_folder=val_acc_folder,
                                 model_folder=model_folder), n_trials=num_trial, gc_after_trial=True)
@@ -228,4 +225,4 @@ def base_model2_selection_optuna(num_trial):
     df = study.trials_dataframe().drop(['state', 'datetime_start', 'datetime_complete', 'duration', 'number'], axis=1)
     df.to_csv(optuna_folder + '/optuna.csv', sep='\t', index=None)
 
-base_model2_selection_optuna(1000)
+base_model2_selection_optuna(500)
