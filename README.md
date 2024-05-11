@@ -34,9 +34,9 @@ The trained model weights that can be used to evaluate the model performance on 
 
 ### Making predictions for exon pairs being BS or LS
 To make a prediction for the given exon pairs of this format:
-chr19|58921331|58929694|+
-chr9|91656940|91660748|-
-chr19|5724818|5768253|+
+chr19|58921331|58929694|+<br>
+chr9|91656940|91660748|-<br>
+chr19|5724818|5768253|+<br>
 
 Follow the example in the testing.py within the Inference folder, and change the path for your testing dataframe, 
 you can also use other trained model weights in this study to do the prediction.
