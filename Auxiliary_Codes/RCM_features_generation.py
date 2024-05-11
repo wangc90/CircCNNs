@@ -242,35 +242,13 @@ class RCS_finder():
             lower_interval_pos = interval_comb[1]
             ## check if the upper in upper_interval_pos and lower in lower_interval_pos
             ## upper or lower + 0.5 * self.seed length was used as the center of rcm kmer
-
             num_rcm_kmer_cross_intervals.append(sum([(upper + 0.5 * self.seed_len >= upper_interval_pos[0] and \
                                                       upper + 0.5 * self.seed_len < upper_interval_pos[1]) and \
                                                      (lower + 0.5 * self.seed_len >= lower_interval_pos[0] and \
                                                       lower + 0.5 * self.seed_len < lower_interval_pos[1]) \
                                                      for upper, lower in upper_lower_rcm_kmer_pos_pairs]))
-        # if sum(num_rcm_kmer_cross_intervals) == 0:
-        #     joint_rcm_kmer_dist = np.array(num_rcm_kmer_cross_intervals)
-        # else:
-        #     joint_rcm_kmer_dist = np.array(num_rcm_kmer_cross_intervals) / sum(num_rcm_kmer_cross_intervals) * 100
-        ### return the raw number of rcm in different part of the introns maybe better than the normalized version
 
         joint_rcm_kmer_dist = np.array(num_rcm_kmer_cross_intervals)
-
-        #         self.valid_subseq_pairs_list = valid_subseq_pairs_list
-
-        #         print(self.valid_subseq_pairs_list)
-
-        #         self.num_rcm_kmers = len(valid_subseq_pairs_list)
-
-        #         if self.is_flanking_introns:
-
-        #             num_comparison = (len(input_seq1) - self.seed_len + 1) * (len(input_seq2) - self.seed_len + 1)
-        #         else:
-        #             num_comparison = 1 / 2 * (len(input_seq1) - self.seed_len + 1) * (len(input_seq2) - self.seed_len)
-
-        #         ## get the number of rcm_kmers distrubution per 10000 comparison
-
-        #         joint_rcm_kmer_dist_per_million = (joint_rcm_kmer_dist / num_comparison) * 1000000
 
         return self.key, list(joint_rcm_kmer_dist)
 
@@ -431,17 +409,21 @@ def loop_lower_introns_ray_chunk(BS_LS_flanking_seq_dict, chunk_keys, rcm_dump_f
     ray.shutdown()
 
 
+### Point to the folder where you want to save the rcm_scores
 rcm_folder = '/home/wangc90/circRNA/circRNA_Data/BS_LS_data/flanking_dicts/rcm_scores/'
 
+### Put the results for different flanking window size in the list
 BS_LS_flanking_seq_dict_list = []
 
-for flanking_intron_len in [200, 300, 400, 2500]:
+for flanking_intron_len in [200, 300]:
+    ### the flanking sequence file
     with open(f'/home/wangc90/circRNA/circRNA_Data/BS_LS_data/flanking_dicts/BS_LS_intronic_flanking_seq_{flanking_intron_len}_bps.json') as f:
         BS_LS_flanking_seq_dict = json.load(f)
         BS_LS_flanking_seq_dict_list.append(BS_LS_flanking_seq_dict)
 
 all_keys = [key for key in BS_LS_flanking_seq_dict_list[0].keys()]
 
+### Execute a chunk (50) of exon pairs at the same time
 chunk_keys_flanking_introns = []
 for i in range(0, len(all_keys), 50):
     chunk_keys_flanking_introns.append(all_keys[i:i + 50])
@@ -450,10 +432,11 @@ chunk_keys_within_introns = []
 for i in range(0, len(all_keys), 50):
     chunk_keys_within_introns.append(all_keys[i:i + 50])
 
-
+### define the seed length
 seed_len_list = [5, 7, 9, 11, 13]
-flanking_len_list = [200, 300, 400, 2500]
+flanking_len_list = [200, 300]
 
+### loop through them
 for index, value in enumerate(BS_LS_flanking_seq_dict_list):
 
     for seed_len in seed_len_list:
