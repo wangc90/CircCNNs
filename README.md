@@ -1,6 +1,6 @@
 Data and code for "CircCNNs, a convolutional neural network framework to better understand the biogenesis of exonic circRNAs"
 
-### The Data folder contains the genomic coordinates of all the back-splicing (BS), linear-splicing (LS) exon pairs used in this study. Due to the file size limitation in GitHub, the remaining dataset can be downloaded from https://drive.google.com/drive/folders/1wq6vJ83Bjy9g0zlWZklpU-hEx1xHWhDG.
+## The Data folder contains the genomic coordinates of all the back-splicing (BS), linear-splicing (LS) exon pairs used in this study. Due to the file size limitation in GitHub, the remaining dataset can be downloaded from https://drive.google.com/drive/folders/1wq6vJ83Bjy9g0zlWZklpU-hEx1xHWhDG.
 
 ### The Model_Codes folder contains the model specifications and training process for the base, RCM as well as Combined model structures. It also contains the retraining code to retrain the base, RCM as well as Combined models. 
 
