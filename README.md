@@ -28,8 +28,8 @@ The trained model weights that can be used to evaluate the model performance on 
 ![CircCNN Base models](Images/base_models.jpg)
 
 
-4. The figure below shows our fast numerical methods to calculate reverse complementary matches (RCMs) crossing the flanking introns or within the flanking intron.
+3. The figure below shows our fast numerical methods to calculate reverse complementary matches (RCMs) crossing the flanking introns or within the flanking intron.
    
 ![CircCNN Base models](Images/RCM_algorithm.png)
 
-If you find anything useful, please cite our work.
+#### If you find anything useful here, please cite our work.
