@@ -17,6 +17,8 @@ contains a Jupyter notebook for model evaluation on the testing set.
 ### The Trained_Model_Weights:
 contains the trained model weights that can be used to evaluate the model performance on the testing set by using the Jupyter notebook in the Model_Evaluation folder.
 
+### The Inference:
+contains the code to prepare the dataset for testing with our trained model weights.
 
 ### Rationales for creating BS and LS exon pairs dataset in this study:
 1. The figure below shows the rationale of how we created exon pairs that either participate in back-splicing (BS) to form exonic circRNAs or linear-splicing (LS) to form linear transcript. Our CircCNNs framework is then based on this curated dataset to classify between the BS and LS exon pairs.
