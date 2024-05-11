@@ -1,6 +1,6 @@
 import torch
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader, SubsetRandomSampler, random_split
+from torch.utils.data import Dataset, DataLoader
 import pandas as pd
 import numpy as np
 import os
@@ -15,313 +15,207 @@ import optuna
 from torchmetrics.classification import F1Score
 import pickle
 import sys
-### import Dataset prepartion and model training classes Auxiliary_Codes folder
-from BS_LS_DataSet_3 import BS_LS_DataSet_Prep, BS_LS_upper_lower_rcm, BS_LS_upper_lower_concat_rcm, RCM_Score
 from pre_trained_model_structure import *
 
+###Give a list of testing coordinate, use the trained models for prediction;
+# for example a csv file like this, we want to make predictions on if these exon pairs are going to form circRNAs or not
 
-def Model_eva(model_path, test_data_set):
-    '''
-    ### load the saved best model and do the evaluation on the independent test dataset
+##chr19|58921331|58929694|+
+##chr9|91656940|91660748|-
+##chr19|5724818|5768253|+
 
+
+def reverse_complement(input_seq):
     '''
+    This function take a sequence and returns the reverse complementary sequence
+    '''
+    complement_dict = {'A': 'T', 'G': 'C', 'T': 'A', 'C': 'G', 'N': 'N'}
+    out_seq = ''.join([complement_dict[base] for base in list(input_seq)[::-1]])
+    return out_seq
+
+def seq_to_matrix(input_seq):
+    '''
+        This function takes a DNA sequence and return a one-hot encoded matrix of 4 X N (length of input_seq)
+    '''
+    row_index = {'A': 0, 'G': 1, 'C': 2, 'T': 3}  # should exclude the 'Ns' in the input sequence
+
+    # initialize the 4 X N 0 matrix:
+    input_mat = np.zeros((4, len(input_seq)))
+
+    for col_index, base in enumerate(input_seq):
+        input_mat[row_index[base]][col_index] = 1
+    return input_mat
+
+
+### Prepare the testing dataset
+
+def get_junction_seq(testing_df_path):
+    '''
+        return the junction seq for a given testing key
+    '''
+    junction_seq = {}
+
+    with open('/home/wangc90/circRNA/circRNA_Data/hg19_seq/hg19_seq_dict.json') as f:
+
+        hg19_seq_dict = json.load(f)
+
+        testing_coordinates_df = pd.read_csv(testing_df_path, sep=',', header=None)
+        for _, row in testing_coordinates_df.itertuples():
+            line_contents = row.split('|')
+            chrom = line_contents[0]
+            strand = line_contents[-1]
+            start = int(line_contents[1])
+            end = int(line_contents[2])
+
+            # get the corresponding chromosome DNA sequence
+            dna_seq = hg19_seq_dict[chrom]
+
+            # extract the spliced genomic sequence assuming the positive strand
+            spliced_seq_P = dna_seq[start: end].upper()
+
+            # extract the upper_intron junction seq assuming the positive strand
+            upper_intron_P = dna_seq[start - 100: start].upper()
+
+            # extract the lower_intron junction seq assuming the positive strand
+            lower_intron_P = dna_seq[end: end + 100].upper()
+
+            # skip the rows that have 'Ns' in the upper_intron or lower_intron
+            if 'N' in upper_intron_P or 'N' in lower_intron_P:
+                print(f'{row} has N in the extracted junctions')
+                continue
+
+            if strand == '-':
+                ### get the junction sequence
+                spliced_seq_N = reverse_complement(spliced_seq_P)
+                upper_exon_N = spliced_seq_N[:100]
+                lower_exon_N = spliced_seq_N[-100:]
+
+                upper_intron_N = reverse_complement(lower_intron_P)
+                lower_intron_N = reverse_complement(upper_intron_P)
+
+                junction_seq[row] = {'upper_intron_' + "100": upper_intron_N,
+                                     'upper_exon_' + "100": upper_exon_N,
+                                     'lower_exon_' + "100": lower_exon_N,
+                                     'lower_intron_' + "100": lower_intron_N}
+            else:
+                upper_exon_P = spliced_seq_P[:100]
+                lower_exon_P = spliced_seq_P[-100:]
+
+                junction_seq[row] = {'upper_intron_' + "100": upper_intron_P,
+                                     'upper_exon_' + "100": upper_exon_P,
+                                     'lower_exon_' + "100": lower_exon_P,
+                                     'lower_intron_' + "100": lower_intron_P}
+
+    return junction_seq
+
+
+def seq_to_tensor(testing_df_path, is_upper_lower_concat=None):
+    ### list to store the concatenated upper and lower sequence one-hot encoding
+    if is_upper_lower_concat:
+        all_torch_feature_list = []
+
+    ### list to store the upper and lower sequence one-hot encoding separately
+    else:
+        all_torch_upper_feature_list = []
+        all_torch_lower_feature_list = []
+
+    junction_seq_dict = get_junction_seq(testing_df_path)
+    for key in junction_seq_dict:
+        value = junction_seq_dict[key]
+
+        # concatenate the upper seq together and lower seq together for two separate CNN to process
+        concatenated_upper_seq = value['upper_intron_100'] + \
+                                 value['upper_exon_100']
+        concatenated_lower_seq = value['lower_exon_100'] + \
+                                 value['lower_intron_100']
+
+        ### test whether want to concatenate the upper seq and lower seq together
+        if is_upper_lower_concat:
+
+            upper_lower_concat_seq = concatenated_upper_seq + concatenated_lower_seq
+            upper_lower_concat_mat = seq_to_matrix(upper_lower_concat_seq)
+            individual_upper_lower_torch = torch.from_numpy(upper_lower_concat_mat).to(torch.float32)
+            all_torch_feature_list.append(individual_upper_lower_torch)
+
+        else:
+            individual_upper_mat = seq_to_matrix(concatenated_upper_seq)
+            individual_lower_mat = seq_to_matrix(concatenated_lower_seq)
+
+            # convert individual instance to torch
+            individual_upper_torch = torch.from_numpy(individual_upper_mat).to(torch.float32)
+            individual_lower_torch = torch.from_numpy(individual_lower_mat).to(torch.float32)
+
+            all_torch_upper_feature_list.append(individual_upper_torch)
+            all_torch_lower_feature_list.append(individual_lower_torch)
+
+    if is_upper_lower_concat:
+
+        all_torch_feature = torch.stack(all_torch_feature_list, dim=0)
+        return all_torch_feature
+
+    else:
+        all_torch_upper_feature = torch.stack(all_torch_upper_feature_list, dim=0)
+        all_torch_lower_feature = torch.stack(all_torch_lower_feature_list, dim=0)
+        return all_torch_upper_feature, all_torch_lower_feature
+
+### Dataset preparation for Basemodel1
+class BS_LS_upper_lower_concat(Dataset):
+    def __init__(self, seq_upper_lower_feature):
+        # construction of the map-style datasets
+        # data loading
+
+        self.x1 = seq_upper_lower_feature
+
+        self.n_samples = seq_upper_lower_feature.size()[0]
+
+    def __getitem__(self, index):
+        # dataset[0]
+        return self.x1[index]
+
+    def __len__(self):
+        # len(dataset)
+        return self.n_samples
+
+class BS_LS_upper_lower(Dataset):
+    def __init__(self, seq_upper_feature, seq_lower_feature):
+        # construction of the map-style datasets
+        # data loading
+        self.x1 = seq_upper_feature
+        self.x2 = seq_lower_feature
+        self.n_samples = seq_upper_feature.size()[0]
+
+    def __getitem__(self, index):
+        # dataset[0]
+        return self.x1[index], self.x2[index]
+
+    def __len__(self):
+        # len(dataset)
+        return self.n_samples
+
+
+def BS_LS_pred(dataset, model_path, model_type):
     saved_model = torch.load(model_path).to('cuda')
-
     saved_model.eval()
-
-    # test_data_set = torch.utils.data.Subset(BS_LS_test_dataset)
-
-    data_loader = DataLoader(test_data_set, batch_size=100)
+    data_loader = DataLoader(dataset, batch_size=100)
 
     with torch.no_grad():
-        all_test_labels = []
+
+        all_preds_labels = []
         all_preds_prob = []
 
-        correct, total = 0.0, 0.0
-        for *test_features, test_labels in data_loader:
-            #### change it to cuda:1 when evaluation for rcm models
-            test_labels = test_labels.type(torch.LongTensor).to('cuda')
-            test_features = [i.to('cuda') for i in test_features]
+        for test_features in data_loader:
+            if model_type == 2:
+                test_features_ = [i.to('cuda') for i in test_features]
+                preds = saved_model(*test_features_)
+            else:
+                preds = saved_model(test_features.to('cuda'))
 
-            preds = saved_model(*test_features)
             ## get the predited probability
             preds_prob = F.softmax(preds, dim=1)[:, 1]
 
             _, preds_labels = torch.max(preds, 1)
 
-            correct += (preds_labels == test_labels).sum().item()
-            total += test_labels.shape[0]
-
-            all_test_labels.extend(test_labels.cpu().numpy().tolist())
+            all_preds_labels.extend(preds_labels.cpu().numpy().tolist())
             all_preds_prob.extend(preds_prob.cpu().numpy().tolist())
 
-        val_acc = round(correct / total, 4)
-
-        print(val_acc)
-
-    return torch.from_numpy(np.array(all_test_labels)), torch.from_numpy(np.array(all_preds_prob))
-
-
-def testing_set_base2(BS_LS_coordinates_path, hg19_seq_dict_json_path,
-                      flanking_dict_folder):
-
-    '''
-    :return: testing set for base 2 models
-    '''
-    BS_LS_coordinates_path = BS_LS_coordinates_path
-    hg19_seq_dict_json_path = hg19_seq_dict_json_path
-    ## need to specify where to store the flanking sequence
-    flanking_dict_folder = flanking_dict_folder
-    bs_ls_dataset = BS_LS_DataSet_Prep(BS_LS_coordinates_path=BS_LS_coordinates_path,
-                                       hg19_seq_dict_json_path=hg19_seq_dict_json_path,
-                                       flanking_dict_folder=flanking_dict_folder,
-                                       flanking_junction_bps=100,
-                                       flanking_intron_bps=5000,
-                                       training_size=8000)
-
-    ### generate the junction and flanking intron dict if not already exists
-    # bs_ls_dataset.get_junction_flanking_intron_seq()
-
-    ### get the testing keys
-    _, _, test_keys = bs_ls_dataset.get_train_test_keys()
-
-    train_torch_upper_features, train_torch_lower_features,\
-    train_torch_labels = bs_ls_dataset.seq_to_tensor(data_keys=test_keys,
-                                                        rcm_folder=None,
-                                                        is_rcm=False,
-                                                        is_upper_lower_concat=False)
-
-    BS_LS_dataset_base2 = BS_LS_upper_lower_rcm(include_rcm=False,
-                                                seq_upper_feature=train_torch_upper_features,
-                                                seq_lower_feature=train_torch_lower_features,
-                                                flanking_rcm=None,
-                                                upper_rcm=None,
-                                                lower_rcm=None,
-                                                label=train_torch_labels)
-
-    return BS_LS_dataset_base2
-
-
-def testing_set_base1(BS_LS_coordinates_path, hg19_seq_dict_json_path,
-                      flanking_dict_folder):
-
-    '''
-    :return: testing set for base 2 models
-    '''
-    BS_LS_coordinates_path = BS_LS_coordinates_path
-    hg19_seq_dict_json_path = hg19_seq_dict_json_path
-    ## need to specify where to store the flanking sequence
-    flanking_dict_folder = flanking_dict_folder
-    bs_ls_dataset = BS_LS_DataSet_Prep(BS_LS_coordinates_path=BS_LS_coordinates_path,
-                                       hg19_seq_dict_json_path=hg19_seq_dict_json_path,
-                                       flanking_dict_folder=flanking_dict_folder,
-                                       flanking_junction_bps=100,
-                                       flanking_intron_bps=5000,
-                                       training_size=8000)
-
-    _, _, test_keys = bs_ls_dataset.get_train_test_keys()
-    train_torch_upper_lower_features, train_torch_labels = bs_ls_dataset.seq_to_tensor(data_keys=test_keys,
-                                                                                                rcm_folder=None,
-                                                                                                is_rcm=False,
-                                                                                                is_upper_lower_concat=True)
-
-    BS_LS_dataset_base1 = BS_LS_upper_lower_concat_rcm(include_rcm=False,
-                                                       seq_upper_lower_feature=train_torch_upper_lower_features,
-                                                       flanking_rcm=None,
-                                                       upper_rcm=None,
-                                                       lower_rcm=None,
-                                                       label=train_torch_labels)
-    return BS_LS_dataset_base1
-
-
-def testing_set_combined2(BS_LS_coordinates_path, hg19_seq_dict_json_path,
-                          flanking_dict_folder, rcm_scores_folder):
-    ## These need to be changed for redhawks
-    BS_LS_coordinates_path = BS_LS_coordinates_path
-    hg19_seq_dict_json_path = hg19_seq_dict_json_path
-    ## need to specify where to store the flanking sequence
-    flanking_dict_folder = flanking_dict_folder
-    bs_ls_dataset = BS_LS_DataSet_Prep(BS_LS_coordinates_path=BS_LS_coordinates_path,
-                                       hg19_seq_dict_json_path=hg19_seq_dict_json_path,
-                                       flanking_dict_folder=flanking_dict_folder,
-                                       flanking_junction_bps=100,
-                                       flanking_intron_bps=5000,
-                                       training_size=8000)
-
-    ## generate the junction and flanking intron dict
-    # bs_ls_dataset.get_junction_flanking_intron_seq()
-
-    _, _, test_keys = bs_ls_dataset.get_train_test_keys()
-
-    rcm_scores_folder = rcm_scores_folder
-    # try without rcm features
-    train_torch_upper_features, train_torch_lower_features, train_torch_flanking_rcm, train_torch_upper_rcm, \
-    train_torch_lower_rcm, train_torch_labels = bs_ls_dataset.seq_to_tensor(data_keys=test_keys,
-                                                                            rcm_folder=rcm_scores_folder,
-                                                                            is_rcm=True,
-                                                                            is_upper_lower_concat=False)
-
-    BS_LS_dataset_base2_combined = BS_LS_upper_lower_rcm(include_rcm=True,
-                                                         seq_upper_feature=train_torch_upper_features,
-                                                         seq_lower_feature=train_torch_lower_features,
-                                                         flanking_rcm=train_torch_flanking_rcm,
-                                                         upper_rcm=train_torch_upper_rcm,
-                                                         lower_rcm=train_torch_lower_rcm,
-                                                         label=train_torch_labels)
-
-    return BS_LS_dataset_base2_combined
-
-
-
-def testing_set_combined1(BS_LS_coordinates_path, hg19_seq_dict_json_path,
-                          flanking_dict_folder, rcm_scores_folder):
-    ## These need to be changed for redhawks
-    BS_LS_coordinates_path = BS_LS_coordinates_path
-    hg19_seq_dict_json_path = hg19_seq_dict_json_path
-    ## need to specify where to store the flanking sequence
-    flanking_dict_folder = flanking_dict_folder
-    bs_ls_dataset = BS_LS_DataSet_Prep(BS_LS_coordinates_path=BS_LS_coordinates_path,
-                                       hg19_seq_dict_json_path=hg19_seq_dict_json_path,
-                                       flanking_dict_folder=flanking_dict_folder,
-                                       flanking_junction_bps=100,
-                                       flanking_intron_bps=5000,
-                                       training_size=8000)
-    ## generate the junction and flanking intron dict
-    # bs_ls_dataset.get_junction_flanking_intron_seq()
-
-    _, _, test_keys = bs_ls_dataset.get_train_test_keys()
-
-    rcm_scores_folder = rcm_scores_folder
-    # try without rcm features
-    train_torch_upper_lower_features, train_torch_flanking_rcm, train_torch_upper_rcm,\
-    train_torch_lower_rcm, train_torch_labels = bs_ls_dataset.seq_to_tensor(data_keys=test_keys,
-                                                                            rcm_folder=rcm_scores_folder,
-                                                                            is_rcm=True,
-                                                                            is_upper_lower_concat=True)
-
-    BS_LS_dataset_base1_combined = BS_LS_upper_lower_concat_rcm(include_rcm=True,
-                                          seq_upper_lower_feature=train_torch_upper_lower_features,
-                                          flanking_rcm=train_torch_flanking_rcm,
-                                          upper_rcm=train_torch_upper_rcm,
-                                          lower_rcm=train_torch_lower_rcm,
-                                          label=train_torch_labels)
-
-    return BS_LS_dataset_base1_combined
-
-
-def BS_LS_pred(model_choice=None):
-    '''
-    This function is used for BS or LS exon pairs prediction based on one of the 12
-    retrained models:
-    choice=1: base1_retraining_10000, choice=2: base1_retraining_9000, choice=3: base1_retraining_8000
-    choice=4: base2_retraining_10000, choice=5: base2_retraining_9000, choice=6: base2_retraining_8000
-    choice=7: combined1_10000, choice=8: combined1_9000, choice=9: combined1_8000
-    choice=10: combined2_10000, choice=11: combined2_9000, choice=12: combined2_8000
-    :return: print prediction accuracy and return predicted probability of being circRNA
-    '''
-
-    BS_LS_coordinates_path='/home/wangc90/circRNA/circRNA_Data/BS_LS_data/updated_data/BS_LS_coordinates_final.csv'
-    hg19_seq_dict_json_path = '/home/wangc90/circRNA/circRNA_Data/hg19_seq/hg19_seq_dict.json'
-    flanking_dict_folder = '/home/wangc90/circRNA/circRNA_Data/BS_LS_data/flanking_dicts/'
-    rcm_scores_folder = '/home/wangc90/circRNA/circRNA_Data/BS_LS_data/flanking_dicts/rcm_scores/'
-
-    if model_choice in [1, 2, 3]:
-
-        print('Preparing testing set')
-        BS_LS_dataset = testing_set_base1(BS_LS_coordinates_path=BS_LS_coordinates_path,
-                                                hg19_seq_dict_json_path=hg19_seq_dict_json_path,
-                                                flanking_dict_folder=flanking_dict_folder)
-        print('Testing set is prepared')
-    elif model_choice in [4, 5, 6]:
-        print('Preparing testing set')
-        BS_LS_dataset = testing_set_base2(BS_LS_coordinates_path=BS_LS_coordinates_path,
-                          hg19_seq_dict_json_path=hg19_seq_dict_json_path,
-                          flanking_dict_folder=flanking_dict_folder)
-        print('Testing set is prepared')
-    elif model_choice in [7, 8, 9]:
-        print('Preparing testing set')
-        BS_LS_dataset = testing_set_combined1(BS_LS_coordinates_path=BS_LS_coordinates_path,
-                                                        hg19_seq_dict_json_path=hg19_seq_dict_json_path,
-                                                        flanking_dict_folder=flanking_dict_folder,
-                                                        rcm_scores_folder=rcm_scores_folder)
-        print('Testing set is prepared')
-    elif model_choice in [10, 11, 12]:
-        print('Preparing testing set')
-        BS_LS_dataset = testing_set_combined2(BS_LS_coordinates_path=BS_LS_coordinates_path,
-                          hg19_seq_dict_json_path=hg19_seq_dict_json_path,
-                          flanking_dict_folder=flanking_dict_folder,
-                          rcm_scores_folder=rcm_scores_folder)
-        print('Testing set is prepared')
-    else:
-        print('Model choice is invalid and should be between 1 to 12 integer')
-        exit()
-
-    print('Bringing the corresponding retrained model weight for circRNA prediction')
-
-    if model_choice == 1:
-        base_model1_10000_path = "../Trained_Model_Weights/Base_model1_retraining_10000/retrained_model_149.pt"
-        base_model1_10000_test_labels, base_model1_10000_preds_prob = Model_eva(model_path=base_model1_10000_path, test_data_set=BS_LS_dataset)
-        return base_model1_10000_preds_prob
-
-    elif model_choice == 2:
-        base_model1_9000_path = "../Trained_Model_Weights/Base_model1_retraining_9000/retrained_model_149.pt"
-        base_model1_9000_test_labels, base_model1_9000_preds_prob = Model_eva(model_path=base_model1_9000_path, \
-                                                                              test_data_set=BS_LS_dataset)
-        return base_model1_9000_preds_prob
-
-
-base_model2_8000_path = "../Trained_Model_Weights/Base_model2_retraining_8000/retrained_model_119.pt"
-base_model2_8000_test_labels, base_model2_8000_preds_prob = Model_eva(model_path=base_model2_8000_path,\
-                                                  test_data_set=BS_LS_dataset_base2)
-
-base_model2_9000_path = "../Trained_Model_Weights/Base_model2_retraining_9000/retrained_model_89.pt"
-base_model2_9000_test_labels, base_model2_9000_preds_prob = Model_eva(model_path=base_model2_9000_path,\
-                                                  test_data_set=BS_LS_dataset_base2)
-
-base_model2_10000_path = "../Trained_Model_Weights/Base_model2_retraining_10000/retrained_model_149.pt"
-base_model2_10000_test_labels, base_model2_10000_preds_prob = Model_eva(model_path=base_model2_10000_path,\
-                                                  test_data_set=BS_LS_dataset_base2)
-
-### bring in the model weights for optimized base model 1 on training set1, 2 and 3
-base_model1_8000_path = "../Trained_Model_Weights/Base_model1_retraining_8000/retrained_model_149.pt"
-base_model1_8000_test_labels, base_model1_8000_preds_prob = Model_eva(model_path=base_model1_8000_path,\
-                                                  test_data_set=BS_LS_dataset_base1)
-
-
-
-
-
-
-### bring in the model weights for base2 combined model on combining set1, 2 and 3
-base_model2_combined_8000_path = '../Trained_Model_Weights/Combined_model2_retraining_8000/retrained_model_89.pt'
-
-base_model2_combined_8000_test_labels, base_model2_combined_8000_preds_prob = Model_eva(model_path=base_model2_combined_8000_path,
-                                                                    test_data_set=BS_LS_dataset_combined2)
-
-base_model2_combined_9000_path = '../Trained_Model_Weights/Combined_model2_retraining_9000/retrained_model_59.pt'
-
-base_model2_combined_9000_test_labels, base_model2_combined_9000_preds_prob = Model_eva(model_path=base_model2_combined_9000_path,
-                                                                    test_data_set=BS_LS_dataset_combined2)
-
-base_model2_combined_10000_path = '../Trained_Model_Weights/Combined_model2_retraining_10000/retrained_model_89.pt'
-
-base_model2_combined_10000_test_labels, base_model2_combined_10000_preds_prob = Model_eva(model_path=base_model2_combined_10000_path,
-                                                                    test_data_set=BS_LS_dataset_combined2)
-
-### bring in the model weights for base1 combined model on combining set1, 2 and 3
-
-base_model1_combined_8000_path = '../Trained_Model_Weights/Combined_model1_retraining_8000/retrained_model_59.pt'
-
-base_model1_combined_8000_test_labels, base_model1_combined_8000_preds_prob = Model_eva(model_path=base_model1_combined_8000_path,
-                                                                    test_data_set=BS_LS_dataset_combined1)
-
-
-base_model1_combined_9000_path = '../Trained_Model_Weights/Combined_model1_retraining_9000/retrained_model_119.pt'
-
-base_model1_combined_9000_test_labels, base_model1_combined_9000_preds_prob = Model_eva(model_path=base_model1_combined_9000_path,
-                                                                    test_data_set=BS_LS_dataset_combined1)
-
-base_model1_combined_10000_path = '../Trained_Model_Weights/Combined_model1_retraining_10000/retrained_model_149.pt'
-
-base_model1_combined_10000_test_labels, base_model1_combined_10000_preds_prob = Model_eva(model_path=base_model1_combined_10000_path,
-                                                                    test_data_set=BS_LS_dataset_combined1)
+    return np.array(all_preds_labels), np.array(all_preds_prob)
