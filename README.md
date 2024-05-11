@@ -32,4 +32,19 @@ The trained model weights that can be used to evaluate the model performance on 
    
 ![CircCNN Base models](Images/RCM_algorithm.png)
 
+### Making predictions for exon pairs being BS or LS
+To make a prediction for the given exon pairs of this format:
+chr19|58921331|58929694|+
+chr9|91656940|91660748|-
+chr19|5724818|5768253|+
+
+Follow the example in the testing.py within the Inference folder, and change the path for your testing dataframe, 
+you can also use other trained model weights in this study to do the prediction.
+
+The results will be similar like this:
+![image](https://github.com/wangc90/CircCNNs/assets/54656523/dfce1f60-c8c6-4022-af53-2082ee48e6d9)
+
+
+
+
 #### If you find anything useful here, please cite our work.
