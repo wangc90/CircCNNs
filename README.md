@@ -48,5 +48,3 @@ The results will be similar like this:
 ![image](https://github.com/wangc90/CircCNNs/assets/54656523/dfce1f60-c8c6-4022-af53-2082ee48e6d9)
 
 ### You can also train the model with your dataset by using the code in Model_Codes folder.
-
-#### If you find anything useful here, please cite our work.
