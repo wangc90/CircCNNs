@@ -35,7 +35,7 @@ contains the code to prepare the dataset for testing with our trained model weig
    
 ![CircCNN Base models](Images/RCM_algorithm.png)
 
-### Making predictions using our pre-trained model weights
+### Making predictions using our pre-trained base model weights
 To predict the given exon pairs of this format to be BS or LS:
 chr19|58921331|58929694|+<br>
 chr9|91656940|91660748|-<br>
@@ -46,5 +46,10 @@ you can also use other trained model weights in this study to do the prediction.
 
 The results will be similar like this:
 ![image](https://github.com/wangc90/CircCNNs/assets/54656523/dfce1f60-c8c6-4022-af53-2082ee48e6d9)
+
+### Calculating RCM information crossing and within the flanking introns
+
+Follow the example in the RCM_features_generation.py within the Auxiliary_Code folder using Ray to execute the Python code in parallel.
+
 
 ### You can also train the model with your dataset by using the code in Model_Codes folder.
