@@ -24,10 +24,12 @@ The trained model weights that can be used to evaluate the model performance on 
 
 
 2. The figure below shows our base models processing the junction sequences to classify BS and LS exon pairs.
+   
 ![CircCNN Base models](Images/base_models.jpg)
 
 
-3. The figure below shows our fast numerical methods to calculate reverse complementary matches (RCMs) crossing the flanking introns or within the flanking intron.
+4. The figure below shows our fast numerical methods to calculate reverse complementary matches (RCMs) crossing the flanking introns or within the flanking intron.
+   
 ![CircCNN Base models](Images/RCM_algorithm.png)
 
 If you find anything useful, please cite our work.
