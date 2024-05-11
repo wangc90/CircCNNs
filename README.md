@@ -18,22 +18,23 @@ a Jupyter notebook for model evaluation on the testing set.
 The trained model weights that can be used to evaluate the model performance on the testing set by using the Jupyter notebook in the Model_Evaluation folder.
 
 
+### Rationales for creating BS and LS exon pairs dataset in this study:
 1. The figure below shows the rationale of how we created exon pairs that either participate in back-splicing (BS) to form exonic circRNAs or linear-splicing (LS) to form linear transcript. Our CircCNNs framework is then based on this curated dataset to classify between the BS and LS exon pairs.
 
 ![CircCNN Base models](Images/BS_LS_exon_pairs.png)
 
-
+### Base model structures created in this study:
 2. The figure below shows our base models processing the junction sequences to classify BS and LS exon pairs.
    
 ![CircCNN Base models](Images/base_models.jpg)
 
-
+### Fast numerical methods for RCM calculation proposed in this study:
 3. The figure below shows our fast numerical methods to calculate reverse complementary matches (RCMs) crossing the flanking introns or within the flanking intron.
    
 ![CircCNN Base models](Images/RCM_algorithm.png)
 
-### Making predictions for exon pairs being BS or LS
-To make a prediction for the given exon pairs of this format:
+### Making predictions using our pre-trained model weights
+To make a prediction for the given exon pairs of this format to be BS or LS:
 chr19|58921331|58929694|+<br>
 chr9|91656940|91660748|-<br>
 chr19|5724818|5768253|+<br>
