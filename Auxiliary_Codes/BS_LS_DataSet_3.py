@@ -256,7 +256,7 @@ class BS_LS_DataSet_Prep():
             input_mat[row_index[base]][col_index] = 1
         return input_mat
 
-    #### create all sequence features, rcm_features and a2i features silmaltineous here
+    #### create all sequence features, rcm_features silmaltineous here
     def seq_to_tensor(self, data_keys, rcm_folder, is_rcm=None, is_upper_lower_concat=None):
         '''
         :param data_keys:
@@ -567,21 +567,3 @@ class RCM_Score(Dataset):
     def __len__(self):
         # len(dataset)
         return self.n_samples
-
-
-# class RCM_Score(Dataset):
-#     def __init__(self, rcm=None, label=None):
-#         # construction of the map-style datasets
-#         # data loading
-#         self.x = rcm
-#         self.y = label
-#
-#         self.n_samples = rcm.size()[0]
-#
-#     def __getitem__(self, index):
-#         # dataset[0]
-#         return self.x[index], self.y[index]
-#
-#     def __len__(self):
-#         # len(dataset)
-#         return self.n_samples
