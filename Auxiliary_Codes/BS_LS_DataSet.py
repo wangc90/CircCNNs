@@ -14,6 +14,7 @@ import optuna
 # from torchmetrics.classification import F1Score
 import pickle
 
+### This is for small window size for RCM scores
 
 class BS_LS_DataSet_Prep():
     def __init__(self, BS_LS_coordinates_path, hg19_seq_dict_json_path,

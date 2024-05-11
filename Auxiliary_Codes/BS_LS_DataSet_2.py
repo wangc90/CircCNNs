@@ -14,7 +14,7 @@ import optuna
 # from torchmetrics.classification import F1Score
 import pickle
 
-#### This script is only used for RCM-triCNN trial with large windows for the inputs
+### This is for large window size for RCM scores
 
 
 class BS_LS_DataSet_Prep():
